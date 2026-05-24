@@ -3,8 +3,8 @@ name: Deploy to Cloudflare Workers
 on:
   push:
     branches:
-      - master   # 推送到 master 分支时自动触发
-  workflow_dispatch:  # 支持手动一键触发
+      - master
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -13,40 +13,52 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # 1. 拉取代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 安装 pnpm
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           run_install: false
 
-      # 3. 读取项目 Node 版本（.node-version 文件）
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: pnpm
 
-      # 4. 安装依赖
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # 5. 构建
+      # 自动创建 KV（已存在会报错但不影响，忽略错误）
+      - name: Create KV Namespace (if not exists)
+        run: npx wrangler kv namespace create sink 2>/dev/null || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # 查询 KV ID 并动态写入 wrangler.jsonc
+      - name: Inject KV Namespace ID into wrangler.jsonc
+        run: |
+          KV_ID=$(npx wrangler kv namespace list | jq -r '.[] | select(.title == "sink") | .id')
+          echo "KV Namespace ID: $KV_ID"
+          # 用 sed 替换 wrangler.jsonc 里的占位 ID
+          sed -i "s/\"id\": \".*\" \/\/ IMPORTANT.*$/\"id\": \"$KV_ID\"/" wrangler.jsonc
+          sed -i "s/\"preview_id\": \".*\"/\"preview_id\": \"$KV_ID\"/" wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Build
         run: pnpm run build
         env:
-          # 构建时注入环境变量（wrangler deploy 后再次写入 CF 控制台也可以，但提前注入更稳妥）
           NUXT_SITE_TOKEN: ${{ secrets.NUXT_SITE_TOKEN }}
           NUXT_CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           NUXT_CF_API_TOKEN: ${{ secrets.NUXT_CF_API_TOKEN }}
 
-      # 6. 通过 Wrangler 部署到 Cloudflare Workers
       - name: Deploy via Wrangler
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy   # 对应 wrangler.jsonc 的配置，自动打包 .output 目录
+          command: deploy
