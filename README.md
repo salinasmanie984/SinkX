@@ -104,6 +104,12 @@ We welcome your contributions and PRs.
 
 We currently support deployment to [Cloudflare Workers](./docs/deployment/workers.md) (recommended) and [Cloudflare Pages](./docs/deployment/pages.md).
 
+or
+
+Fill the serects in Github Action 
+and deploy
+
+
 ## ⚒️ Configuration
 
 [Configuration Docs](./docs/configuration.md)
